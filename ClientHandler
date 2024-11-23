@@ -42,7 +42,7 @@ public class ClientHandler implements Runnable {
             while ((messageInput = in.readLine()) != null) {
                 if (messageInput.startsWith("/")) {
                     if (messageInput.startsWith("/help")) {
-                        sendHelpMessage(); // Show help
+                        sendHelpMessage();  // Show help
                     } else if (messageInput.startsWith("/msg")) {
                         handlePrivateMessage(messageInput, username); // Handle private messages
                     } else if (messageInput.startsWith("/some")) {
@@ -52,11 +52,11 @@ public class ClientHandler implements Runnable {
                     } else if (messageInput.startsWith("/onl")) {
                         handleOnlineUsers(); // Handle /onl for online users
                     } else if (messageInput.startsWith("/quit")) {
-                        // Notify others about the user's departure
-                        showMessage(username + " has left the chat.");
                         // Disconnect the user immediately
                         disconnectClient();
-                        break;
+                        // Broadcast the message to others about the user leaving
+                        showMessage(username + " has left the chat.");
+                        break;  // Exit the loop after disconnecting
                     } else {
                         out.println("Unknown command. Type /help for a list of commands.");
                     }
@@ -74,6 +74,7 @@ public class ClientHandler implements Runnable {
             disconnectClient(); // Ensure proper disconnection if the loop ends
         }
     }
+
 
 
 
