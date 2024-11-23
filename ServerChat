@@ -1,0 +1,54 @@
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Properties;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+public class ChatServer {
+    private static CopyOnWriteArrayList<ClientHandler> clients = new CopyOnWriteArrayList<>();
+    private static int port;
+    private static String serverName;
+    private static List<String> bannedPhrases;
+
+    public static void main(String[] args) throws IOException {
+        loadConfiguration("config.properties");
+
+        ServerSocket serverSocket = new ServerSocket(port);
+        System.out.println("Server name: " + serverName);
+        System.out.println("Port: " + port);
+        System.out.println("Banned phrases: " + bannedPhrases);
+
+        while (true) {
+            Socket clientSocket = serverSocket.accept();
+            System.out.println("Client connected: " + clientSocket);
+
+            // Create a new thread for each client
+            ClientHandler clientThread = new ClientHandler(clientSocket, clients, bannedPhrases);
+            clients.add(clientThread);
+            new Thread(clientThread).start();
+        }
+    }
+
+    public static void loadConfiguration(String configFile) {
+        Properties props = new Properties();
+        try(FileInputStream config = new FileInputStream(configFile)) {
+            props.load(config);
+
+            port = Integer.parseInt(props.getProperty("port"));
+            serverName = props.getProperty("serverName");
+            String bannedPhrasesConfig = props.getProperty("bannedPhrases");
+            if (bannedPhrasesConfig != null && !bannedPhrasesConfig.isEmpty()) {
+                bannedPhrases = Arrays.asList(bannedPhrasesConfig.split(","));
+            } else {
+                bannedPhrases = Arrays.asList(); // If null or empty, initialize as an empty list
+                System.out.println("No banned phrases specified.");
+            }
+        } catch (IOException e) {
+            System.out.println("Error while loading configuration: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+}
