@@ -13,7 +13,7 @@ public class ClientHandler implements Runnable {
     private PrintWriter out;
     private BufferedReader in;
     private String username;
-
+    private boolean isDisconnected = false;
     public ClientHandler(Socket socket, CopyOnWriteArrayList<ClientHandler> clients, List<String> bannedPhrases) throws IOException {
         this.clientSocket = socket;
         this.clients = clients;
@@ -71,16 +71,12 @@ public class ClientHandler implements Runnable {
         } catch (IOException e) {
             System.out.println("Error: " + e.getMessage());
         } finally {
-            disconnectClient(); // Ensure proper disconnection if the loop ends
+            // Call disconnectClient only if the client hasn't been disconnected yet
+            if (!isDisconnected) {
+                disconnectClient();
+            }
         }
     }
-
-
-
-
-
-
-
     private void handleOnlineUsers() {
         StringBuilder onlineUsers = new StringBuilder("Online users:\n");
         for (ClientHandler client : clients) {
@@ -234,7 +230,11 @@ public class ClientHandler implements Runnable {
 
     private void disconnectClient() {
         try {
-            // Close input/output streams and socket immediately to disconnect the user
+            if (isDisconnected) {
+                return;  // If already disconnected, do nothing
+            }
+
+            // Close the socket and streams immediately
             if (in != null) {
                 in.close();
             }
@@ -244,6 +244,7 @@ public class ClientHandler implements Runnable {
             if (clientSocket != null) {
                 clientSocket.close();
             }
+            isDisconnected = true;  // Mark the client as disconnected
         } catch (IOException e) {
             e.printStackTrace();
         } finally {
