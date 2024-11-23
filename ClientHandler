@@ -1,0 +1,256 @@
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.Socket;
+import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+public class ClientHandler implements Runnable {
+    private Socket clientSocket;
+    private CopyOnWriteArrayList<ClientHandler> clients;
+    private List<String> bannedPhrases;
+    private PrintWriter out;
+    private BufferedReader in;
+    private String username;
+
+    public ClientHandler(Socket socket, CopyOnWriteArrayList<ClientHandler> clients, List<String> bannedPhrases) throws IOException {
+        this.clientSocket = socket;
+        this.clients = clients;
+        this.bannedPhrases = bannedPhrases;
+        this.out = new PrintWriter(clientSocket.getOutputStream(), true);
+        this.in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+
+    }
+
+    @Override
+    public void run() {
+        try {
+            out.println("Enter your username: ");
+            username = in.readLine();
+            if (username == null || username.trim().isEmpty()) {
+                out.println("Invalid username. Disconnecting...");
+                disconnectClient();
+                return;
+            }
+            username = username.trim();
+            showMessage(username + " has joined the chat.");
+
+            out.println("Type /help to see available commands.");
+
+            String messageInput;
+            while ((messageInput = in.readLine()) != null) {
+                if (messageInput.startsWith("/")) {
+                    if (messageInput.startsWith("/help")) {
+                        sendHelpMessage(); // Show help
+                    } else if (messageInput.startsWith("/msg")) {
+                        handlePrivateMessage(messageInput, username); // Handle private messages
+                    } else if (messageInput.startsWith("/some")) {
+                        handleSendToMultiple(messageInput); // Handle /some for sending to multiple users
+                    } else if (messageInput.startsWith("/ex")) {
+                        handleExcludeMessage(messageInput); // Handle /ex for excluding users
+                    } else if (messageInput.startsWith("/onl")) {
+                        handleOnlineUsers(); // Handle /onl for online users
+                    } else if (messageInput.startsWith("/quit")) {
+                        // Notify others about the user's departure
+                        showMessage(username + " has left the chat.");
+                        // Disconnect the user immediately
+                        disconnectClient();
+                        break;
+                    } else {
+                        out.println("Unknown command. Type /help for a list of commands.");
+                    }
+                } else {
+                    if (containsBannedPhrases(messageInput)) {
+                        out.println("Your message contains banned phrases.");
+                    } else {
+                        showMessage(username + ": " + messageInput); // Broadcast message to all
+                    }
+                }
+            }
+        } catch (IOException e) {
+            System.out.println("Error: " + e.getMessage());
+        } finally {
+            disconnectClient(); // Ensure proper disconnection if the loop ends
+        }
+    }
+
+
+
+
+
+
+    private void handleOnlineUsers() {
+        StringBuilder onlineUsers = new StringBuilder("Online users:\n");
+        for (ClientHandler client : clients) {
+            if (client.getUsername().equalsIgnoreCase(this.username)) {
+                onlineUsers.append(client.getUsername()).append(" (you)\n");
+            } else {
+                onlineUsers.append(client.getUsername()).append("\n");
+            }
+        }
+        out.println(onlineUsers.toString().trim());
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    private void sendHelpMessage() {
+        out.println("Available commands:");
+        out.println("/msg <username>: <message> - Send a private message to a specific user.");
+        out.println("/some <usernames>: <message> - Send a message to multiple specific users.");
+        out.println("/ex <usernames>: <message> - Send a message to all users except the specified ones.");
+        out.println("/onl - View the list of online users.");
+        out.println("/quit - Disconnect from the chat.");
+        out.println("Just type your message to send it to everyone.");
+        out.println("Type /help to see this list again.");
+    }
+
+    private void handlePrivateMessage(String messageInput, String sender) {
+        try {
+            String[] parts = messageInput.split(" ", 2);
+            if (parts.length < 2) {
+                out.println("Invalid format. Use /msg <username>: <message>");
+                return;
+            }
+            String[] userMessage = parts[1].split(": ", 2);
+            if (userMessage.length < 2) {
+                out.println("Invalid format. Use /msg <username>: <message>");
+                return;
+            }
+
+            String recipient = userMessage[0].trim();
+            String message = userMessage[1].trim();
+
+            for (ClientHandler client : clients) {
+                if (client != this && client.getUsername().equalsIgnoreCase(recipient)) {
+                    client.out.println(sender + ": " + message);
+                    return;
+                }
+            }
+            out.println("User " + recipient + " not found.");
+        } catch (Exception e) {
+            out.println("Error sending private message: " + e.getMessage());
+        }
+    }
+
+    private void handleExcludeMessage(String messageInput) {
+        try {
+            // Split the input into two parts: excluded usernames and the actual message
+            String[] parts = messageInput.substring(4).split(":", 2);
+            if (parts.length < 2) {
+                out.println("Invalid format. Use /ex <usernames>: <message>");
+                return;
+            }
+
+            // Get the excluded usernames and the actual message
+            String excludedUsernames = parts[0].trim(); // Comma-separated list of usernames
+            String message = parts[1].trim();           // The actual message to send
+
+            // Split the excluded usernames into an array
+            String[] excludedUsers = excludedUsernames.split(",");
+
+            // Send the message to all clients except the excluded ones and the sender
+            for (ClientHandler client : clients) {
+                boolean isExcluded = false;
+
+                // Check if the client is excluded or if it's the sender
+                for (String excludedUser : excludedUsers) {
+                    if (client.getUsername().equalsIgnoreCase(excludedUser) || client.getUsername().equalsIgnoreCase(username)) {
+                        isExcluded = true;
+                        break;  // Skip this client if they are excluded or are the sender
+                    }
+                }
+
+                // If the client is not excluded, send them the message
+                if (!isExcluded) {
+                    client.out.println(username + ": " + message);
+                }
+            }
+        } catch (Exception e) {
+            out.println("Error excluding users: " + e.getMessage());
+        }
+    }
+
+
+    private void handleSendToMultiple(String messageInput) {
+        try {
+            // Split the input into two parts: the recipient list and the message
+            String[] parts = messageInput.substring(5).split(":", 2);  // Remove "/some " prefix
+            if (parts.length < 2) {
+                out.println("Invalid format. Use /some <usernames>: <message>");
+                return;
+            }
+
+            String recipients = parts[0].trim();  // Comma-separated list of usernames
+            String message = parts[1].trim();     // The message to send
+
+            // Ensure there are no unwanted spaces in the message
+            if (message.isEmpty()) {
+                out.println("Error: Message cannot be empty.");
+                return;
+            }
+
+            // Split the recipients into an array (comma-separated)
+            String[] recipientList = recipients.split(",");
+
+            // Send the message to each specified recipient
+            for (ClientHandler client : clients) {
+                for (String recipient : recipientList) {
+                    // If the client's username matches any of the recipients, send them the message
+                    if (client.getUsername().equalsIgnoreCase(recipient.trim())) {
+                        client.out.println(username + ": " + message); // Send the message to this client
+                        break;  // Stop searching once we've found the recipient
+                    }
+                }
+            }
+        } catch (Exception e) {
+            out.println("Error sending message to multiple users: " + e.getMessage());
+        }
+    }
+
+
+    public boolean containsBannedPhrases(String message) {
+        for (String phrase : bannedPhrases) {
+            if (message.contains(phrase)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void showMessage(String message) {
+        // Broadcast the message to all connected clients
+        for (ClientHandler client : clients) {
+            // Send the message to each connected client
+            if (client != this) {  // Ensure the disconnecting client doesn't receive the message
+                client.out.println(message);
+            }
+        }
+    }
+
+
+    private void disconnectClient() {
+        try {
+            // Close input/output streams and socket immediately to disconnect the user
+            if (in != null) {
+                in.close();
+            }
+            if (out != null) {
+                out.close();
+            }
+            if (clientSocket != null) {
+                clientSocket.close();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            // Remove this client from the list of clients immediately after disconnecting
+            clients.remove(this);
+        }
+    }
+}
+
+
+
